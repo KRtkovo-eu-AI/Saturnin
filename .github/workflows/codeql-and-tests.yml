@@ -1,0 +1,72 @@
+name: CodeQL and Tests
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: CodeQL Analysis
+    runs-on: windows-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'csharp' ]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Restore NuGet packages
+        run: nuget restore botnet.sln
+
+      - name: Build solution
+        run: msbuild botnet.sln /p:Configuration=Release
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  tests:
+    name: Build and Test
+    runs-on: windows-latest
+    needs: codeql
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Restore NuGet packages
+        run: nuget restore botnet.sln
+
+      - name: Build solution
+        run: msbuild botnet.sln /p:Configuration=Debug
+
+      - name: Run tests
+        id: dotnet-test
+        run: dotnet test botnet.Tests/Saturnin.Tests.csproj --configuration Debug --no-build --logger "trx;LogFileName=TestResults.trx" --results-directory TestResults
+        continue-on-error: true
+
+      - name: Publish test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Saturnin Tests
+          path: TestResults/*.trx
+          reporter: dotnet-trx
+
+      - name: Fail if tests failed
+        if: steps.dotnet-test.outcome == 'failure'
+        run: exit 1
